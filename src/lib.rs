@@ -10,47 +10,31 @@ trait Deserialize: Sized {
 
 /// Implement `Serialize` trait for types which provide `to_le_bytes()`
 macro_rules! serialize_le {
-    // Serialize `$input_type` as an `$wire_type` by using `to_le_bytes()`
-    // and `from_le_bytes()`. The `$input_type` gets converted to an
-    // `$wire_type` via `TryInto`
-    ($input_type:ty, $wire_type:ty) => {
-        impl Serialize for $input_type {
+    ($typ:ty) => {
+        impl Serialize for $typ {
             fn serialize(&self, buf: &mut Vec<u8>) {
-                let wire: $wire_type = (*self).try_into()
-                    .expect("Should never happen, input type to wire type");
-                buf.extend_from_slice(&wire.to_le_bytes());
+                buf.extend_from_slice(&self.to_le_bytes());
             }
         }
 
-        impl Deserialize for $input_type {
+        impl Deserialize for $typ {
             fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
-                // Get the slice pointed to by `orig_ptr`
+                // Get access to the original slice
                 let ptr: &[u8] = *orig_ptr;
 
-                // Convert the slice to a fixed-size array 
-                let arr: [u8; std::mem::size_of::<$wire_type>()] =
-                    ptr.get(0..std::mem::size_of::<$wire_type>())?
-                        .try_into().ok()?;
-
-                // Convert the array of bytes into the `$wire_type`
-                let wire_val = <$wire_type>::from_le_bytes(arr);
-
-                // Try to convert the wire-format type into the desired type
-                let converted: $input_type = wire_val.try_into().ok()?;
+                // Convert the slice to `Self`
+                let ret = Self::from_le_bytes(
+                    ptr.get(0..std::mem::size_of::<Self>())?
+                        .try_into().unwrap());
 
                 // Update the pointer
-                *orig_ptr = &ptr[std::mem::size_of::<$wire_type>()..];
+                *orig_ptr = &ptr[std::mem::size_of::<Self>()..];
 
                 // Return out the deserialized `Self`!
-                Some(converted)
+                Some(ret)
             }
         }
-    };
-
-    // Serialize an $input_type using `to_le_bytes()` and `from_le_bytes()`
-    ($input_type:ty) => {
-        serialize_le!($input_type, $input_type);
-    };
+    }
 }
 
 serialize_le!(u8);
@@ -63,8 +47,8 @@ serialize_le!(i16);
 serialize_le!(i32);
 serialize_le!(i64);
 serialize_le!(i128);
-serialize_le!(usize, u64);
-serialize_le!(isize, i64);
+//serialize_le!(usize, u64);
+//serialize_le!(isize, i64);
 
 /*
 /// Implement serialize for `&str`
