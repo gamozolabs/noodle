@@ -472,7 +472,6 @@ mod tests {
             }
         );
 
-noodle!(serialize, deserialize,
         noodle!(serialize, deserialize,
             #[derive(Debug)]
             ///areghjerj
