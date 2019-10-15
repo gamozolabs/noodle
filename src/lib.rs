@@ -2,10 +2,22 @@ extern crate core;
 
 use core::convert::TryInto;
 
+/// Serialize a `self` into an existing vector
 trait Serialize {
     fn serialize(&self, buf: &mut Vec<u8>);
 }
 
+/// Deserialize a buffer, creating a Some(`Self`) if the serialization succeeds,
+/// otherwise a `None` is returned. `ptr` should be a mutable reference to a
+/// slice, this allows the deserializer to "consume" bytes by advancing the
+/// pointer. To see how many bytes were deserialized, you can check the
+/// difference in the `ptr`'s length before and after the call to deserialize.
+///
+/// If deserialization fails at any point, all intermediate objects created
+/// will be destroyed, and the `ptr` will not be be changed.
+///
+/// This effectively behaves the same as `std::io::Read`. Since we don't have
+/// `std` access in this lib we opt to go this route.
 trait Deserialize: Sized {
     fn deserialize(ptr: &mut &[u8]) -> Option<Self>;
 }
@@ -55,6 +67,7 @@ macro_rules! serialize_le {
     };
 }
 
+// Implement serialization for all of the primitive types
 serialize_le!(u8);
 serialize_le!(u16);
 serialize_le!(u32);
@@ -98,11 +111,18 @@ impl Serialize for String {
 /// Implement `Deserialize` for `String`
 impl Deserialize for String {
     fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
+        // Make a copy of the original pointer
+        let mut ptr = *orig_ptr;
+
         // Deserialize a vector of bytes
-        let vec = <Vec<u8> as Deserialize>::deserialize(orig_ptr)?;
+        let vec = <Vec<u8> as Deserialize>::deserialize(&mut ptr)?;
 
         // Convert it to a string and return it out
-        String::from_utf8(vec).ok()
+        let ret = String::from_utf8(vec).ok()?;
+
+        // Update the original pointer
+        *orig_ptr = ptr;
+        Some(ret)
     }
 }
 
@@ -120,18 +140,22 @@ impl<T: Serialize> Serialize for Vec<T> {
 /// Implement `Deserialize` for `Vec`s that contain all `Deserialize` types
 impl<T: Deserialize> Deserialize for Vec<T> {
     fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
+        // Make a copy of the original pointer
+        let mut ptr = *orig_ptr;
+
         // Get the length of the vector in elements
-        let len = <usize as Deserialize>::deserialize(orig_ptr)?;
+        let len = <usize as Deserialize>::deserialize(&mut ptr)?;
 
         // Allocate the vector we're going to return
         let mut vec = Vec::with_capacity(len);
 
         // Deserialize all the components
         for _ in 0..len {
-            vec.push(<T as Deserialize>::deserialize(orig_ptr)?);
+            vec.push(<T as Deserialize>::deserialize(&mut ptr)?);
         }
 
-        // Return out the deserialized vector
+        // Update original pointer and return out the deserialized vector
+        *orig_ptr = ptr;
         Some(vec)
     }
 }
@@ -147,15 +171,25 @@ macro_rules! serialize_arr {
         }
 
         impl<T: Deserialize> Deserialize for [T; $arrsize] {
-            fn deserialize(_orig_ptr: &mut &[u8]) -> Option<Self> {
-                Some([$(
-                    {let _ = $foo; Deserialize::deserialize(_orig_ptr)?},
-                )*])
+            fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
+                // Make a copy of the original pointer
+                let mut _ptr = *orig_ptr;
+
+                // Deserialize the array
+                let arr = [$(
+                    {let _ = $foo; Deserialize::deserialize(&mut _ptr)?},
+                )*];
+
+                // Update the original pointer and return out the array
+                *orig_ptr = _ptr;
+                Some(arr)
             }
         }
     }
 }
 
+// Implement serialization and deserialization for all arrays of types which
+// are serializable and/or deserialiable up to fixed-width 32 entry arrays
 serialize_arr!( 0,);
 serialize_arr!( 1, 0);
 serialize_arr!( 2, 0, 0);
@@ -190,35 +224,38 @@ serialize_arr!(30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 serialize_arr!(31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 serialize_arr!(32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
+#[macro_export]
 macro_rules! ser {
     // Create a new structure with serialize implemented
-    (serialize, struct $structname:ident { $($id:ident: $typ:ty),*$(,)?}) => {
-        ser!(defstruct, $structname, $($id, $typ)*);
+    (serialize, $(#[$attr:meta])* struct $structname:ident { $($id:ident: $typ:ty),*$(,)?}) => {
+        ser!(defstruct, $($attr)*, $structname, $($id, $typ)*);
         ser!(impl_serialize, $structname, $($id)*);
     };
 
     // Create a new structure with deserialize implemented
-    (deserialize, struct $structname:ident { $($id:ident: $typ:ty),*$(,)?} ) => {
-        ser!(defstruct, $structname, $($id, $typ)*);
+    (deserialize, $(#[$attr:meta])* struct $structname:ident { $($id:ident: $typ:ty),*$(,)?} ) => {
+        ser!(defstruct, $($attr)*, $structname, $($id, $typ)*);
         ser!(impl_deserialize, $structname, $($id)*);
     };
 
     // Create a new structure with serialize and deserialize implemented
-    (serialize, deserialize, struct $structname:ident { $($id:ident: $typ:ty),*$(,)?} ) => {
-        ser!(defstruct, $structname, $($id, $typ)*);
+    (serialize, deserialize, $(#[$attr:meta])* struct $structname:ident { $($id:ident: $typ:ty),*$(,)?} ) => {
+        ser!(defstruct, $($attr)*, $structname, $($id, $typ)*);
         ser!(impl_serialize, $structname, $($id)*);
         ser!(impl_deserialize, $structname, $($id)*);
     };
 
     // Create a new structure with serialize and deserialize implemented
-    (deserialize, serialize, struct $structname:ident { $($id:ident: $typ:ty),*$(,)?} ) => {
-        ser!(defstruct, $structname, $($id, $typ)*);
+    (deserialize, serialize, $(#[$attr:meta])* struct $structname:ident { $($id:ident: $typ:ty),*$(,)?} ) => {
+        ser!(defstruct, $($attr)*, $structname, $($id, $typ)*);
         ser!(impl_serialize, $structname, $($id)*);
         ser!(impl_deserialize, $structname, $($id)*);
     };
 
-    (defstruct, $structname:ident, $($id:ident, $typ:ty)*) => {
-        #[derive(Debug)]
+    (defstruct, $($meta:meta)*, $structname:ident, $($id:ident, $typ:ty)*) => {
+        $(
+            #[$meta]
+        )*
         struct $structname {
             $(
                 $id: $typ,
@@ -257,29 +294,67 @@ macro_rules! ser {
     };
 }
 
-ser!(serialize, deserialize, struct Baz {
-    foo: u32,
-});
+#[cfg(test)]
+mod tests {
+    use crate::*;
 
-ser!(serialize, deserialize, struct Foo {
-    foo: u32,
-    baz: Baz,
-    bar: u8,
-});
+    #[test]
+    fn benchmark() {
+        ser!(serialize, deserialize,
+            #[derive(Debug, Default)]
+            struct Baz {
+                a: u32,
+                b: u128,
+                c: usize,
+                d: u8,
+                e: u128,
+                f: i16,
+            }
+        );
 
-#[test]
-fn test() {
-    let nested_struct = Foo {
-        foo: 0xdeadbeef,
-        baz: Baz { foo: 0x12345678 },
-        bar: 0x32,
-    };
+        ser!(serialize, deserialize,
+            #[derive(Debug, Default)]
+            struct Foo {
+                bar: [u128; 32],
+            }
+        );
 
-    let mut buf = Vec::new();
-    nested_struct.serialize(&mut buf);
-    print!("Serialized {:#x?}\n", buf);
+        let nested_struct = Foo::default();
 
-    let mut ptr = &buf[..buf.len()];
-    print!("Deserialized {:#x?}\n", Foo::deserialize(&mut ptr));
+        const NUM_ITERS:  usize = 10_000_0000;
+        const CLOCK_RATE: usize = 3_200_000_000;
+
+        fn rdtsc() -> u64 {
+            unsafe { core::arch::x86_64::_rdtsc() }
+        }
+
+        let mut buf = Vec::with_capacity(1024 * 1024);
+
+        let start = rdtsc();
+        for _ in 0..NUM_ITERS {
+            buf.clear();
+            nested_struct.serialize(&mut buf);
+        }
+        print!("Serialized size is {}\n", buf.len());
+        let size_in_mb = (buf.len() as f64 / 1024. / 1024.) * NUM_ITERS as f64;
+        let cycles  = rdtsc() - start;
+        let elapsed = (cycles as f64) / CLOCK_RATE as f64;
+        print!("Ser   {:10.4} cycles/iter\n", cycles as f64 / NUM_ITERS as f64);
+        print!("Ser   {:10.4} MiB/sec\n", size_in_mb / elapsed);
+
+        let start = rdtsc();
+        for _ in 0..NUM_ITERS {
+            let mut ptr = &buf[..buf.len()];
+            let _ = unsafe {
+                core::ptr::read_volatile(&Foo::deserialize(&mut ptr).unwrap())
+            };
+            assert!(ptr.len() == 0);
+        }
+        let size_in_mb = (buf.len() as f64 / 1024. / 1024.) * NUM_ITERS as f64;
+        let cycles  = rdtsc() - start;
+        let elapsed = (cycles as f64) / CLOCK_RATE as f64;
+        print!("Deser {:10.4} cycles/iter\n", cycles as f64 / NUM_ITERS as f64);
+        print!("Deser {:10.4} MiB/sec\n", size_in_mb / elapsed);
+    }
 }
 
