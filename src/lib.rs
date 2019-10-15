@@ -100,6 +100,44 @@ impl<T: Serialize> Serialize for [T] {
     }
 }
 
+/// Implement `Serialize` for `Option`
+impl<T: Serialize> Serialize for Option<T> {
+    fn serialize(&self, buf: &mut Vec<u8>) {
+        if let Some(val) = self.as_ref() {
+            // Serialize that this is a some type
+            buf.push(1);
+
+            // Serialize the underlying bytes of the value
+            Serialize::serialize(val, buf);
+        } else {
+            // `None` value case
+            buf.push(0);
+        }
+    }
+}
+
+/// Implement `Deserialize` for `Option`
+impl<T: Deserialize> Deserialize for Option<T> {
+    fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
+        // Make a copy of the original pointer
+        let mut ptr = *orig_ptr;
+
+        // Get if this option is a `Some` value
+        let is_some = <u8 as Deserialize>::deserialize(&mut ptr)? != 0;
+        
+        let ret = if is_some {
+            // Deserialize payload
+            Some(<T as Deserialize>::deserialize(&mut ptr)?)
+        } else {
+            None
+        };
+
+        // Update the original pointer
+        *orig_ptr = ptr;
+        Some(ret)
+    }
+}
+
 /// Implement `Serialize` for `String`
 impl Serialize for String {
     fn serialize(&self, buf: &mut Vec<u8>) {
@@ -292,6 +330,128 @@ macro_rules! noodle {
             }
         }
     };
+
+    // Create a new enum with serialize implemented
+    (serialize, $(#[$attr:meta])* $vis:vis enum $enumname:ident {
+        $($(#[$variantmeta:meta])* $variantid:ident {
+            $(
+                $(#[$varfieldmeta:meta])* $varfieldident:ident: $varfieldtype:ty
+            ),*$(,)?
+        }),*$(,)?
+    }
+    ) => {
+        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype),*),*);
+        noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
+    };
+
+    // Create a new enum with deserialize implemented
+    (deserialize, $(#[$attr:meta])* $vis:vis enum $enumname:ident {
+        $($(#[$variantmeta:meta])* $variantid:ident {
+            $(
+                $(#[$varfieldmeta:meta])* $varfieldident:ident: $varfieldtype:ty
+            ),*$(,)?
+        }),*$(,)?
+    }
+    ) => {
+        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype),*),*);
+        noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
+    };
+
+    // Create a new enum with serialize and deserialize implemented
+    (serialize, deserialize, $(#[$attr:meta])* $vis:vis enum $enumname:ident {
+        $($(#[$variantmeta:meta])* $variantid:ident {
+            $(
+                $(#[$varfieldmeta:meta])* $varfieldident:ident: $varfieldtype:ty
+            ),*$(,)?
+        }),*$(,)?
+    }
+    ) => {
+        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype),*),*);
+        noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
+        noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
+    };
+
+    // Create a new enum with serialize and deserialize implemented
+    (deserialize, serialize, $(#[$attr:meta])* $vis:vis enum $enumname:ident {
+        $($(#[$variantmeta:meta])* $variantid:ident {
+            $(
+                $(#[$varfieldmeta:meta])* $varfieldident:ident: $varfieldtype:ty
+            ),*$(,)?
+        }),*$(,)?
+    }
+    ) => {
+        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype),*),*);
+        noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
+        noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
+    };
+
+    (defenum, $($attr:meta)*, $vis:vis, $enumname:ident,
+            $($($variantmeta:meta)*, $variantid:ident,
+            $($($varfieldmeta:meta)*~$varfieldident:ident~$varfieldtype:ty),*),*) => {
+        $(#[$attr])*
+        $vis enum $enumname { $(
+            $(#[$variantmeta])* $variantid {
+                $(
+                    $(#[$varfieldmeta])* $varfieldident: $varfieldtype
+                ),*
+            }
+        ),*
+        }
+    };
+
+    (impl_serialize_enum, $enumname:ident, $($variantid:ident $($varfieldident:ident)|*),*) => {
+        impl Serialize for $enumname {
+            fn serialize(&self, buf: &mut Vec<u8>) {
+                let mut _count = 0u32;
+
+                $(
+                    if let $enumname::$variantid { $($varfieldident),* } = self {
+                        // Serialize the variant ID
+                        _count.serialize(buf);
+
+                        $(
+                            $varfieldident.serialize(buf);
+                        )*
+                    }
+                    _count += 1;
+                )*
+            }
+        }
+    };
+
+    (impl_deserialize_enum, $enumname:ident, $($variantid:ident $($varfieldident:ident)|*),*) => {
+        impl Deserialize for $enumname {
+            fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
+                // Get the original pointer
+                let mut ptr = *orig_ptr;
+
+                // Count to keep track of enum ids
+                let mut _count = 0u32;
+
+                // Enum identifer
+                let enum_id = <u32 as Deserialize>::deserialize(&mut ptr)?;
+
+                $(
+                    if _count == enum_id {
+                        let ret = $enumname::$variantid {
+                            $(
+                                $varfieldident: Deserialize::deserialize(&mut ptr)?,
+                            )*
+                        };
+
+                        // Update pointer and return correct enum variant
+                        *orig_ptr = ptr;
+                        return Some(ret);
+                    }
+
+                    _count += 1;
+                )*
+
+                // Failed to deserialize
+                None
+            }
+        }
+    };
 }
 
 #[cfg(test)]
@@ -311,6 +471,22 @@ mod tests {
                 f: i16,
             }
         );
+
+        noodle!(serialize, deserialize,
+            #[derive(Debug)]
+            ///areghjerj
+            enum Foopie {  
+                Test { x: u32, y: u32 },
+                TestTest { z: u128 },
+            }
+        );
+
+        let mut buf = Vec::new();
+        Foopie::Test { x: 1, y: 9 }.serialize(&mut buf);
+        print!("Got {:?}\n", buf);
+        let mut ptr = &buf[..];
+        print!("{:?}\n", Foopie::deserialize(&mut ptr));
+        assert!(ptr.len() == 0);
 
         noodle!(serialize, deserialize,
             #[derive(Debug, Default)]
