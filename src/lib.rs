@@ -340,7 +340,7 @@ macro_rules! noodle {
         }),*$(,)?
     }
     ) => {
-        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype),*),*);
+        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype)*),*);
         noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
     };
 
@@ -353,7 +353,7 @@ macro_rules! noodle {
         }),*$(,)?
     }
     ) => {
-        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype),*),*);
+        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype)*),*);
         noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
     };
 
@@ -366,7 +366,7 @@ macro_rules! noodle {
         }),*$(,)?
     }
     ) => {
-        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype),*),*);
+        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype)*),*);
         noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
         noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
     };
@@ -380,14 +380,14 @@ macro_rules! noodle {
         }),*$(,)?
     }
     ) => {
-        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype),*),*);
+        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype)*),*);
         noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
         noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
     };
 
     (defenum, $($attr:meta)*, $vis:vis, $enumname:ident,
             $($($variantmeta:meta)*, $variantid:ident,
-            $($($varfieldmeta:meta)*~$varfieldident:ident~$varfieldtype:ty),*),*) => {
+            $($($varfieldmeta:meta)*~$varfieldident:ident~$varfieldtype:ty)*),*) => {
         $(#[$attr])*
         $vis enum $enumname { $(
             $(#[$variantmeta])* $variantid {
@@ -472,6 +472,7 @@ mod tests {
             }
         );
 
+noodle!(serialize, deserialize,
         noodle!(serialize, deserialize,
             #[derive(Debug)]
             ///areghjerj
