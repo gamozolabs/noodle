@@ -3,7 +3,7 @@ extern crate core;
 use core::convert::TryInto;
 
 /// Serialize a `self` into an existing vector
-trait Serialize {
+pub trait Serialize {
     fn serialize(&self, buf: &mut Vec<u8>);
 }
 
@@ -18,7 +18,7 @@ trait Serialize {
 ///
 /// This effectively behaves the same as `std::io::Read`. Since we don't have
 /// `std` access in this lib we opt to go this route.
-trait Deserialize: Sized {
+pub trait Deserialize: Sized {
     fn deserialize(ptr: &mut &[u8]) -> Option<Self>;
 }
 
@@ -225,40 +225,40 @@ serialize_arr!(31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 serialize_arr!(32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
 #[macro_export]
-macro_rules! ser {
+macro_rules! noodle {
     // Create a new structure with serialize implemented
-    (serialize, $(#[$attr:meta])* struct $structname:ident { $($id:ident: $typ:ty),*$(,)?}) => {
-        ser!(defstruct, $($attr)*, $structname, $($id, $typ)*);
-        ser!(impl_serialize, $structname, $($id)*);
+    (serialize, $(#[$attr:meta])* $vis:vis struct $structname:ident { $($(#[$fattr:meta])* $fvis:vis $id:ident: $typ:ty),*$(,)?}) => {
+        noodle!(defstruct, $($attr)*, $vis, $structname, $($($fattr)*, $fvis, $id, $typ)*);
+        noodle!(impl_serialize, $structname, $($id)*);
     };
 
     // Create a new structure with deserialize implemented
-    (deserialize, $(#[$attr:meta])* struct $structname:ident { $($id:ident: $typ:ty),*$(,)?} ) => {
-        ser!(defstruct, $($attr)*, $structname, $($id, $typ)*);
-        ser!(impl_deserialize, $structname, $($id)*);
+    (deserialize, $(#[$attr:meta])* $vis:vis struct $structname:ident { $($(#[$fattr:meta])* $fvis:vis $id:ident: $typ:ty),*$(,)?} ) => {
+        noodle!(defstruct, $($attr)*, $vis, $structname, $($($fattr)*, $fvis, $id, $typ)*);
+        noodle!(impl_deserialize, $structname, $($id)*);
     };
 
     // Create a new structure with serialize and deserialize implemented
-    (serialize, deserialize, $(#[$attr:meta])* struct $structname:ident { $($id:ident: $typ:ty),*$(,)?} ) => {
-        ser!(defstruct, $($attr)*, $structname, $($id, $typ)*);
-        ser!(impl_serialize, $structname, $($id)*);
-        ser!(impl_deserialize, $structname, $($id)*);
+    (serialize, deserialize, $(#[$attr:meta])* $vis:vis struct $structname:ident { $($(#[$fattr:meta])* $fvis:vis $id:ident: $typ:ty),*$(,)?} ) => {
+        noodle!(defstruct, $($attr)*, $vis, $structname, $($($fattr)*, $fvis, $id, $typ)*);
+        noodle!(impl_serialize, $structname, $($id)*);
+        noodle!(impl_deserialize, $structname, $($id)*);
     };
 
     // Create a new structure with serialize and deserialize implemented
-    (deserialize, serialize, $(#[$attr:meta])* struct $structname:ident { $($id:ident: $typ:ty),*$(,)?} ) => {
-        ser!(defstruct, $($attr)*, $structname, $($id, $typ)*);
-        ser!(impl_serialize, $structname, $($id)*);
-        ser!(impl_deserialize, $structname, $($id)*);
+    (deserialize, serialize, $(#[$attr:meta])* $vis:vis struct $structname:ident { $($(#[$fattr:meta])* $fvis:vis $id:ident: $typ:ty),*$(,)?} ) => {
+        noodle!(defstruct, $($attr)*, $vis, $structname, $($($fattr)*, $fvis, $id, $typ)*);
+        noodle!(impl_serialize, $structname, $($id)*);
+        noodle!(impl_deserialize, $structname, $($id)*);
     };
 
-    (defstruct, $($meta:meta)*, $structname:ident, $($id:ident, $typ:ty)*) => {
+    (defstruct, $($meta:meta)*, $vis:vis, $structname:ident, $($($fattr:meta)*, $fvis:vis, $id:ident, $typ:ty)*) => {
         $(
             #[$meta]
         )*
-        struct $structname {
+        $vis struct $structname {
             $(
-                $id: $typ,
+                $(#[$fattr])* $fvis $id: $typ,
             )*
         }
     };
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn benchmark() {
-        ser!(serialize, deserialize,
+        noodle!(serialize, deserialize,
             #[derive(Debug, Default)]
             struct Baz {
                 a: u32,
@@ -312,7 +312,7 @@ mod tests {
             }
         );
 
-        ser!(serialize, deserialize,
+        noodle!(serialize, deserialize,
             #[derive(Debug, Default)]
             struct Foo {
                 bar: [u128; 32],
@@ -357,4 +357,5 @@ mod tests {
         print!("Deser {:10.4} MiB/sec\n", size_in_mb / elapsed);
     }
 }
+
 
