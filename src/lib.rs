@@ -1,6 +1,7 @@
 extern crate core;
 
 use core::convert::TryInto;
+use std::borrow::Cow;
 
 /// Serialize a `self` into an existing vector
 pub trait Serialize {
@@ -82,6 +83,14 @@ serialize_le!(usize, u64);
 serialize_le!(isize, i64);
 
 /// Implement serialize for `&str`
+impl Serialize for str {
+    fn serialize(&self, buf: &mut Vec<u8>) {
+        // Serialize the underlying bytes of the string
+        Serialize::serialize(self.as_bytes(), buf);
+    }
+}
+
+/// Implement serialize for `&str`
 impl Serialize for &str {
     fn serialize(&self, buf: &mut Vec<u8>) {
         // Serialize the underlying bytes of the string
@@ -161,6 +170,31 @@ impl Deserialize for String {
         // Update the original pointer
         *orig_ptr = ptr;
         Some(ret)
+    }
+}
+
+impl<'a, T: 'a> Serialize for Cow<'a, T>
+        where T: Serialize + ToOwned + ?Sized {
+    fn serialize(&self, buf: &mut Vec<u8>) {
+        Serialize::serialize(self.as_ref(), buf);
+    }
+}
+
+impl<'a, T: 'a> Deserialize for Cow<'a, T>
+        where T: ToOwned + ?Sized,
+              <T as ToOwned>::Owned: Deserialize,
+              Cow<'a, T>: From<<T as ToOwned>::Owned> {
+    fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
+        // Make a copy of the original pointer
+        let mut ptr = *orig_ptr;
+
+        // Deserialize into the owned type for the `Cow`
+        let ret =
+            <<T as ToOwned>::Owned as Deserialize>::deserialize(&mut ptr)?;
+
+        // Update the original pointer
+        *orig_ptr = ptr;
+        Some(Cow::from(ret))
     }
 }
 
@@ -262,6 +296,36 @@ serialize_arr!(30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 serialize_arr!(31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 serialize_arr!(32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
+macro_rules! tuple_match {
+    ($self:ident, $count:expr, $buf:expr, $enumname:ident, $enumident:ident) => {
+        if let $enumname::$enumident() = $self {
+            // Serialize the variant ID
+            Serialize::serialize($count, $buf);
+        }
+    };
+
+    ($self:ident, $count:expr, $buf:expr, $enumname:ident, $enumident:ident, $ty:ty) => {
+        if let $enumname::$enumident( a ) = $self {
+            // Serialize the variant ID
+            Serialize::serialize($count, $buf);
+
+            // Serialize out the fields
+            Serialize::serialize(a, $buf);
+        }
+    };
+
+    ($self:ident, $count:expr, $buf:expr, $enumname:ident, $enumident:ident, $_0:ty, $_1:ty) => {
+        if let $enumname::$enumident( a, b ) = $self {
+            // Serialize the variant ID
+            Serialize::serialize($count, $buf);
+
+            // Serialize out the fields
+            Serialize::serialize(a, $buf);
+            Serialize::serialize(b, $buf);
+        }
+    };
+}
+
 #[macro_export]
 macro_rules! noodle {
     // Create a new structure with serialize implemented
@@ -331,94 +395,214 @@ macro_rules! noodle {
         }
     };
 
-    // Create a new enum with serialize implemented
-    (serialize, $(#[$attr:meta])* $vis:vis enum $enumname:ident {
-        $($(#[$variantmeta:meta])* $variantid:ident {
-            $(
-                $(#[$varfieldmeta:meta])* $varfieldident:ident: $varfieldtype:ty
-            ),*$(,)?
-        }),*$(,)?
-    }
-    ) => {
-        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype)*),*);
-        noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
-    };
-
-    // Create a new enum with deserialize implemented
-    (deserialize, $(#[$attr:meta])* $vis:vis enum $enumname:ident {
-        $($(#[$variantmeta:meta])* $variantid:ident {
-            $(
-                $(#[$varfieldmeta:meta])* $varfieldident:ident: $varfieldtype:ty
-            ),*$(,)?
-        }),*$(,)?
-    }
-    ) => {
-        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype)*),*);
-        noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
-    };
-
     // Create a new enum with serialize and deserialize implemented
-    (serialize, deserialize, $(#[$attr:meta])* $vis:vis enum $enumname:ident {
-        $($(#[$variantmeta:meta])* $variantid:ident {
+    (serialize, deserialize,
+        $(#[$attr:meta])* $vis:vis enum $enumname:ident {
+            // Go through each variant in the enum
             $(
-                $(#[$varfieldmeta:meta])* $varfieldident:ident: $varfieldtype:ty
-            ),*$(,)?
-        }),*$(,)?
-    }
-    ) => {
-        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype)*),*);
-        noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
-        noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
-    };
+                // Variant attributes
+                $(#[$variant_attr:meta])*
 
-    // Create a new enum with serialize and deserialize implemented
-    (deserialize, serialize, $(#[$attr:meta])* $vis:vis enum $enumname:ident {
-        $($(#[$variantmeta:meta])* $variantid:ident {
-            $(
-                $(#[$varfieldmeta:meta])* $varfieldident:ident: $varfieldtype:ty
-            ),*$(,)?
-        }),*$(,)?
-    }
-    ) => {
-        noodle!(defenum, $($attr)*, $vis, $enumname, $($($variantmeta)*, $variantid, $($($varfieldmeta)*~$varfieldident~$varfieldtype)*),*);
-        noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
-        noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
-    };
+                // Identifier for the enum variant, always present
+                $variant_ident:ident
+                
+                // An enum item struct
+                $({
+                    $(
+                        $(#[$named_attr:meta])* $named_field:ident: $named_type:ty
+                    ),*$(,)?
+                })?
 
-    (defenum, $($attr:meta)*, $vis:vis, $enumname:ident,
-            $($($variantmeta:meta)*, $variantid:ident,
-            $($($varfieldmeta:meta)*~$varfieldident:ident~$varfieldtype:ty)*),*) => {
-        $(#[$attr])*
-        $vis enum $enumname { $(
-            $(#[$variantmeta])* $variantid {
+                // An enum item tuple
+                $((
+                    $(
+                        $(#[$tuple_meta:meta])* $tuple_typ:ty
+                    ),*$(,)? 
+                ))?
+
+                // An enum discriminant
+                $(= $expr:expr)?
+            ),*$(,)?
+        }
+    ) => {
+        noodle!(defenum,
+            $(#[$attr])* $vis enum $enumname {
+                // Go through each variant in the enum
                 $(
-                    $(#[$varfieldmeta])* $varfieldident: $varfieldtype
+                    // Variant attributes
+                    $(#[$variant_attr])*
+
+                    // Identifier for the enum variant, always present
+                    $variant_ident
+                    
+                    // An enum item struct
+                    $({
+                        $(
+                            $(#[$named_attr])* $named_field: $named_type
+                        ),*
+                    })?
+
+                    // An enum item tuple
+                    $((
+                        $(
+                            $(#[$tuple_meta])* $tuple_typ
+                        ),*
+                    ))?
+
+                    // An enum discriminant
+                    $(= $expr)?
+                ),*
+            });
+        noodle!(impl_serialize_enum,
+            $(#[$attr])* $vis enum $enumname {
+                // Go through each variant in the enum
+                $(
+                    // Variant attributes
+                    $(#[$variant_attr])*
+
+                    // Identifier for the enum variant, always present
+                    $variant_ident
+                    
+                    // An enum item struct
+                    $({
+                        $(
+                            $(#[$named_attr])* $named_field: $named_type
+                        ),*
+                    })?
+
+                    // An enum item tuple
+                    $((
+                        $(
+                            $(#[$tuple_meta])* $tuple_typ
+                        ),*
+                    ))?
+
+                    // An enum discriminant
+                    $(= $expr)?
+                ),*
+            });
+
+        //noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
+        //noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
+    };
+
+    (defenum,
+        $(#[$attr:meta])* $vis:vis enum $enumname:ident {
+            // Go through each variant in the enum
+            $(
+                // Variant attributes
+                $(#[$variant_attr:meta])*
+
+                // Identifier for the enum variant, always present
+                $variant_ident:ident
+                
+                // An enum item struct
+                $({
+                    $(
+                        $(#[$named_attr:meta])* $named_field:ident: $named_type:ty
+                    ),*$(,)?
+                })?
+
+                // An enum item tuple
+                $((
+                    $(
+                        $(#[$tuple_meta:meta])* $tuple_typ:ty
+                    ),*$(,)? 
+                ))?
+
+                // An enum discriminant
+                $(= $expr:expr)?
+            ),*$(,)?
+        }) => {
+            // Just define the enum as is
+            $(#[$attr])* $vis enum $enumname {
+                // Go through each variant in the enum
+                $(
+                    // Variant attributes
+                    $(#[$variant_attr])*
+
+                    // Identifier for the enum variant, always present
+                    $variant_ident
+                    
+                    // An enum item struct
+                    $({
+                        $(
+                            $(#[$named_attr])* $named_field: $named_type
+                        ),*
+                    })?
+
+                    // An enum item tuple
+                    $((
+                        $(
+                            $(#[$tuple_meta])* $tuple_typ
+                        ),*
+                    ))?
+
+                    // An enum discriminant
+                    $(= $expr)?
                 ),*
             }
-        ),*
-        }
     };
 
-    (impl_serialize_enum, $enumname:ident, $($variantid:ident $($varfieldident:ident)|*),*) => {
+    (impl_serialize_enum,
+        $(#[$attr:meta])* $vis:vis enum $enumname:ident {
+            // Go through each variant in the enum
+            $(
+                // Variant attributes
+                $(#[$variant_attr:meta])*
+
+                // Identifier for the enum variant, always present
+                $variant_ident:ident
+                
+                // An enum item struct
+                $({
+                    $(
+                        $(#[$named_attr:meta])* $named_field:ident: $named_type:ty
+                    ),*$(,)?
+                })?
+
+                // An enum item tuple
+                $((
+                    $(
+                        $(#[$tuple_meta:meta])* $tuple_typ:ty
+                    ),*$(,)? 
+                ))?
+
+                // An enum discriminant
+                $(= $expr:expr)?
+            ),*$(,)?
+        }) => {
         impl Serialize for $enumname {
             fn serialize(&self, buf: &mut Vec<u8>) {
                 let mut _count = 0u32;
 
+                // Go through each variant
                 $(
-                    if let $enumname::$variantid { $($varfieldident),* } = self {
-                        // Serialize the variant ID
-                        _count.serialize(buf);
+                    // Struct
+                    $(
+                        if let $enumname::$variant_ident { $($named_field),* } = self {
+                            // Serialize the variant ID
+                            Serialize::serialize(&_count, buf);
 
-                        $(
-                            $varfieldident.serialize(buf);
-                        )*
-                    }
+                            // Serialize all fields
+                            $(
+                                Serialize::serialize($named_field, buf);
+                            )*
+                        }
+                    )?
+
+                    // Tuple
+                    $(
+                        tuple_match!(self, &_count, buf, $enumname, $variant_ident $(, $tuple_typ)*);
+                    )?
+
                     _count += 1;
                 )*
             }
         }
     };
 
+    /*
     (impl_deserialize_enum, $enumname:ident, $($variantid:ident $($varfieldident:ident)|*),*) => {
         impl Deserialize for $enumname {
             fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
@@ -451,87 +635,63 @@ macro_rules! noodle {
                 None
             }
         }
-    };
+    };*/
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
+    #![allow(unused)]
+
     use crate::*;
 
     #[test]
-    fn benchmark() {
+    fn test() {
         noodle!(serialize, deserialize,
-            #[derive(Debug, Default)]
-            struct Baz {
-                a: u32,
-                b: u128,
-                c: usize,
-                d: u8,
-                e: u128,
-                f: i16,
+            enum TestA {}
+        );
+
+        noodle!(serialize, deserialize,
+            enum TestB {
+                Apples,
+                Bananas,
             }
         );
 
         noodle!(serialize, deserialize,
-            #[derive(Debug)]
-            ///areghjerj
-            enum Foopie {  
-                Test { x: u32, y: u32 },
-                TestTest { z: u128 },
+            enum TestC {
+                Apples,
+                Bananas
+            }
+        );
+
+        noodle!(serialize, deserialize,
+            enum TestD {
+                #[cfg(test)]
+                Apples {},
+                Cars,
+                Bananas {
+                    #[cfg(test)]
+                    x: u32,
+                    z: i32
+                },
+                Cake(),
+                Cakes(u32),
+                Testing(i128, i64),
             }
         );
 
         let mut buf = Vec::new();
-        Foopie::Test { x: 1, y: 9 }.serialize(&mut buf);
-        print!("Got {:?}\n", buf);
-        let mut ptr = &buf[..];
-        print!("{:?}\n", Foopie::deserialize(&mut ptr));
-        assert!(ptr.len() == 0);
+        TestD::Testing(0x1337133713371337, -230).serialize(&mut buf);
+        print!("{:x?}\n", buf);
 
         noodle!(serialize, deserialize,
-            #[derive(Debug, Default)]
-            struct Foo {
-                bar: [u128; 32],
+            enum TestE {
+                Apples = 5,
+                Bananas,
             }
         );
 
-        let nested_struct = Foo::default();
-
-        const NUM_ITERS:  usize = 10_000_0000;
-        const CLOCK_RATE: usize = 3_200_000_000;
-
-        fn rdtsc() -> u64 {
-            unsafe { core::arch::x86_64::_rdtsc() }
-        }
-
-        let mut buf = Vec::with_capacity(1024 * 1024);
-
-        let start = rdtsc();
-        for _ in 0..NUM_ITERS {
-            buf.clear();
-            nested_struct.serialize(&mut buf);
-        }
-        print!("Serialized size is {}\n", buf.len());
-        let size_in_mb = (buf.len() as f64 / 1024. / 1024.) * NUM_ITERS as f64;
-        let cycles  = rdtsc() - start;
-        let elapsed = (cycles as f64) / CLOCK_RATE as f64;
-        print!("Ser   {:10.4} cycles/iter\n", cycles as f64 / NUM_ITERS as f64);
-        print!("Ser   {:10.4} MiB/sec\n", size_in_mb / elapsed);
-
-        let start = rdtsc();
-        for _ in 0..NUM_ITERS {
-            let mut ptr = &buf[..buf.len()];
-            let _ = unsafe {
-                core::ptr::read_volatile(&Foo::deserialize(&mut ptr).unwrap())
-            };
-            assert!(ptr.len() == 0);
-        }
-        let size_in_mb = (buf.len() as f64 / 1024. / 1024.) * NUM_ITERS as f64;
-        let cycles  = rdtsc() - start;
-        let elapsed = (cycles as f64) / CLOCK_RATE as f64;
-        print!("Deser {:10.4} cycles/iter\n", cycles as f64 / NUM_ITERS as f64);
-        print!("Deser {:10.4} MiB/sec\n", size_in_mb / elapsed);
+        panic!("NOPE");
     }
 }
-
 
