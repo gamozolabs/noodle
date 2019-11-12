@@ -481,9 +481,6 @@ macro_rules! noodle {
                     $(= $expr)?
                 ),*
             });
-
-        //noodle!(impl_serialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
-        //noodle!(impl_deserialize_enum, $enumname, $($variantid $($varfieldident)|*),*);
     };
 
     (defenum,
@@ -596,46 +593,21 @@ macro_rules! noodle {
                         tuple_match!(self, &_count, buf, $enumname, $variant_ident $(, $tuple_typ)*);
                     )?
 
+                    // Discriminant
+                    $(
+                        if let $enumname::$variant_ident = self {
+                            let _ = $expr;
+
+                            // Serialize the variant ID
+                            Serialize::serialize(&_count, buf);
+                        }
+                    )?
+
                     _count += 1;
                 )*
             }
         }
     };
-
-    /*
-    (impl_deserialize_enum, $enumname:ident, $($variantid:ident $($varfieldident:ident)|*),*) => {
-        impl Deserialize for $enumname {
-            fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
-                // Get the original pointer
-                let mut ptr = *orig_ptr;
-
-                // Count to keep track of enum ids
-                let mut _count = 0u32;
-
-                // Enum identifer
-                let enum_id = <u32 as Deserialize>::deserialize(&mut ptr)?;
-
-                $(
-                    if _count == enum_id {
-                        let ret = $enumname::$variantid {
-                            $(
-                                $varfieldident: Deserialize::deserialize(&mut ptr)?,
-                            )*
-                        };
-
-                        // Update pointer and return correct enum variant
-                        *orig_ptr = ptr;
-                        return Some(ret);
-                    }
-
-                    _count += 1;
-                )*
-
-                // Failed to deserialize
-                None
-            }
-        }
-    };*/
 }
 
 #[cfg(test)]
@@ -659,7 +631,7 @@ mod test {
 
         noodle!(serialize, deserialize,
             enum TestC {
-                Apples,
+                Apples = 6,
                 Bananas
             }
         );
@@ -681,7 +653,7 @@ mod test {
         );
 
         let mut buf = Vec::new();
-        TestD::Testing(0x1337133713371337, -230).serialize(&mut buf);
+        TestC::Apples.serialize(&mut buf);
         print!("{:x?}\n", buf);
 
         noodle!(serialize, deserialize,
