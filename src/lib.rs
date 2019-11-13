@@ -575,37 +575,40 @@ macro_rules! noodle {
 
                 // Go through each variant
                 $(
-                    // Struct
-                    $(
-                        if let $enumname::$variant_ident { $($named_field),* } = self {
-                            // Serialize the variant ID
-                            Serialize::serialize(&_count, buf);
-
-                            // Serialize all fields
-                            $(
-                                Serialize::serialize($named_field, buf);
-                            )*
-                        }
-                    )?
-
-                    // Tuple
-                    $(
-                        tuple_match!(self, &_count, buf, $enumname, $variant_ident $(, $tuple_typ)*);
-                    )?
-
-                    // Discriminant
-                    $(
-                        if let $enumname::$variant_ident = self {
-                            let _ = $expr;
-
-                            // Serialize the variant ID
-                            Serialize::serialize(&_count, buf);
-                        }
-                    )?
+                    handlie!(self, $enumname, $variant_ident, buf, &_count,
+                        $({$($named_field),*})? $(($($tuple_typ),*))?);
 
                     _count += 1;
                 )*
             }
+        }
+    };
+}
+
+macro_rules! handlie {
+    // Named enum variants
+    ($self:ident, $enumname:ident, $variant_ident:ident, $buf:expr, $count:expr, {$($named_field:ident),*}) => {
+        if let $enumname::$variant_ident { $($named_field),* } = $self {
+            // Serialize the variant ID
+            Serialize::serialize($count, $buf);
+
+            // Serialize all fields
+            $(
+                Serialize::serialize($named_field, $buf);
+            )*
+        }
+    };
+
+    // Tuple enum variants
+    ($self:ident, $enumname:ident, $variant_ident:ident, $buf:expr, $count:expr, ($($tuple_typ:ty),*)) => {
+        tuple_match!($self, $count, $buf, $enumname, $variant_ident $(, $tuple_typ)*);
+    };
+
+    // Discriminant or empty enum variants
+    ($self:ident, $enumname:ident, $variant_ident:ident, $buf:expr, $count:expr,) => {
+        if let $enumname::$variant_ident = $self {
+            // Serialize the variant ID
+            Serialize::serialize($count, $buf);
         }
     };
 }
@@ -653,7 +656,7 @@ mod test {
         );
 
         let mut buf = Vec::new();
-        TestC::Apples.serialize(&mut buf);
+        TestD::Cars.serialize(&mut buf);
         print!("{:x?}\n", buf);
 
         noodle!(serialize, deserialize,
