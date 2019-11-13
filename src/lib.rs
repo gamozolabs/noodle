@@ -3,6 +3,8 @@
 extern crate core;
 extern crate alloc;
 
+#[macro_use] mod tuple_match;
+
 use core::convert::TryInto;
 use alloc::borrow::Cow;
 
@@ -298,36 +300,6 @@ serialize_arr!(29, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 serialize_arr!(30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 serialize_arr!(31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 serialize_arr!(32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-
-macro_rules! tuple_match {
-    ($self:ident, $count:expr, $buf:expr, $enumname:ident, $enumident:ident) => {
-        if let $enumname::$enumident() = $self {
-            // Serialize the variant ID
-            Serialize::serialize($count, $buf);
-        }
-    };
-
-    ($self:ident, $count:expr, $buf:expr, $enumname:ident, $enumident:ident, $ty:ty) => {
-        if let $enumname::$enumident( a ) = $self {
-            // Serialize the variant ID
-            Serialize::serialize($count, $buf);
-
-            // Serialize out the fields
-            Serialize::serialize(a, $buf);
-        }
-    };
-
-    ($self:ident, $count:expr, $buf:expr, $enumname:ident, $enumident:ident, $_0:ty, $_1:ty) => {
-        if let $enumname::$enumident( a, b ) = $self {
-            // Serialize the variant ID
-            Serialize::serialize($count, $buf);
-
-            // Serialize out the fields
-            Serialize::serialize(a, $buf);
-            Serialize::serialize(b, $buf);
-        }
-    };
-}
 
 #[macro_export]
 macro_rules! noodle {
@@ -676,6 +648,8 @@ macro_rules! noodle {
     };
 }
 
+/// Handles serializing of the 3 different enum variant types. Enum struct
+/// variants, enum tuple variants, and enum discriminant/bare variants
 macro_rules! handle_serialize_enum_variants {
     // Named enum variants
     ($self:ident, $enumname:ident, $variant_ident:ident,
@@ -694,7 +668,7 @@ macro_rules! handle_serialize_enum_variants {
     // Tuple enum variants
     ($self:ident, $enumname:ident, $variant_ident:ident,
             $buf:expr, $count:expr, ($($tuple_typ:ty),*)) => {
-        tuple_match!($self, $count, $buf, $enumname,
+        handle_serialize_tuple_match!($self, $count, $buf, $enumname,
             $variant_ident $(, $tuple_typ)*);
     };
 
@@ -708,6 +682,8 @@ macro_rules! handle_serialize_enum_variants {
     };
 }
 
+/// Handles deserializing of the 3 different enum variant types. Enum struct
+/// variants, enum tuple variants, and enum discriminant/bare variants
 macro_rules! handle_deserialize_enum_variants {
     // Named enum variants
     ($variant:ident, $enumname:ident, $variant_ident:ident, $orig_ptr:expr,
@@ -795,7 +771,7 @@ mod test {
     }
 
     #[test]
-    fn test() {
+    fn test_enums() {
         // Not constructable, but we should handle this empty enum case
         noodle!(serialize, deserialize,
             enum TestA {}
@@ -832,21 +808,30 @@ mod test {
                 Apples {},
                 Cars,
                 Bananas {
+                    /* comment
+                     */
                     #[cfg(test)]
                     x: u32,
                     z: i32
                 },
+                // Another comment
                 Cake(),
+                Weird(,),
                 Cakes(u32),
+                Foopie(i8, i32,),
                 Testing(i128, i64),
+                Lotsotuple(i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8),
             }
         );
         test_serdes!(TestD, TestD::Apples {});
         test_serdes!(TestD, TestD::Cars);
         test_serdes!(TestD, TestD::Bananas { x: 932923, z: -348192 });
         test_serdes!(TestD, TestD::Cake());
+        test_serdes!(TestD, TestD::Weird());
         test_serdes!(TestD, TestD::Cakes(0x13371337));
+        test_serdes!(TestD, TestD::Foopie(-9, 19));
         test_serdes!(TestD, TestD::Testing(0xc0c0c0c0c0c0c0c0c0c0c0, -10000));
+        test_serdes!(TestD, TestD::Lotsotuple(0,0,0,0,0,5,0,0,0,0,0,0,0,9,0,0));
     }
 }
 
