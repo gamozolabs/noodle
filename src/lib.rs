@@ -485,6 +485,34 @@ macro_rules! noodle {
                     $(= $expr)?
                 ),*
             });
+        noodle!(impl_deserialize_enum,
+            $(#[$attr])* $vis enum $enumname {
+                // Go through each variant in the enum
+                $(
+                    // Variant attributes
+                    $(#[$variant_attr])*
+
+                    // Identifier for the enum variant, always present
+                    $variant_ident
+                    
+                    // An enum item struct
+                    $({
+                        $(
+                            $(#[$named_attr])* $named_field: $named_type
+                        ),*
+                    })?
+
+                    // An enum item tuple
+                    $((
+                        $(
+                            $(#[$tuple_meta])* $tuple_typ
+                        ),*
+                    ))?
+
+                    // An enum discriminant
+                    $(= $expr)?
+                ),*
+            });
     };
 
     (defenum,
@@ -589,6 +617,61 @@ macro_rules! noodle {
             }
         }
     };
+
+    (impl_deserialize_enum,
+        $(#[$attr:meta])* $vis:vis enum $enumname:ident {
+            // Go through each variant in the enum
+            $(
+                // Variant attributes
+                $(#[$variant_attr:meta])*
+
+                // Identifier for the enum variant, always present
+                $variant_ident:ident
+                
+                // An enum item struct
+                $({
+                    $(
+                        $(#[$named_attr:meta])*
+                            $named_field:ident: $named_type:ty
+                    ),*$(,)?
+                })?
+
+                // An enum item tuple
+                $((
+                    $(
+                        $(#[$tuple_meta:meta])* $tuple_typ:ty
+                    ),*$(,)? 
+                ))?
+
+                // An enum discriminant
+                $(= $expr:expr)?
+            ),*$(,)?
+        }) => {
+        impl Deserialize for $enumname {
+            fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
+                // Get the original pointer
+                let mut ptr = *orig_ptr;
+
+                // Count tracking enum variants
+                let mut _count = 0u32;
+
+                // Get the enum variant
+                let variant = u32::deserialize(&mut ptr)?;
+
+                // Go through each variant
+                $(
+                    handlie_deser!(variant, $enumname, $variant_ident,
+                        orig_ptr, ptr, _count,
+                        $({$($named_field),*})? $(($($tuple_typ),*))?);
+
+                    _count += 1;
+                )*
+
+                // Return out the result
+                None
+            }
+        }
+    };
 }
 
 macro_rules! handlie {
@@ -623,6 +706,58 @@ macro_rules! handlie {
     };
 }
 
+macro_rules! handlie_deser {
+    // Named enum variants
+    ($variant:ident, $enumname:ident, $variant_ident:ident, $orig_ptr:expr,
+            $buf:expr, $count:expr, {$($named_field:ident),*}) => {
+        if $count == $variant {
+            // Construct the enum
+            let ret = $enumname::$variant_ident {
+                $(
+                    $named_field: Deserialize::deserialize(&mut $buf)?,
+                )*
+            };
+
+            // Update the original pointer
+            *$orig_ptr = $buf;
+
+            return Some(ret);
+        }
+    };
+
+    // Tuple enum variants
+    ($variant:ident, $enumname:ident, $variant_ident:ident, $orig_ptr:expr,
+            $buf:expr, $count:expr, ($($tuple_typ:ty),*)) => {
+        if $count == $variant {
+            // Construct the enum
+            let ret = $enumname::$variant_ident (
+                $(
+                    <$tuple_typ as Deserialize>::deserialize(&mut $buf)?,
+                )*
+            );
+
+            // Update the original pointer
+            *$orig_ptr = $buf;
+
+            return Some(ret);
+        }
+    };
+
+    // Discriminant or empty enum variants
+    ($variant:ident, $enumname:ident, $variant_ident:ident, $orig_ptr:expr,
+            $buf:expr, $count:expr,) => {
+        if $count == $variant {
+            // Construct the enum
+            let ret = $enumname::$variant_ident;
+
+            // Update the original pointer
+            *$orig_ptr = $buf;
+
+            return Some(ret);
+        }
+    };
+}
+
 #[cfg(test)]
 mod test {
     #![allow(unused)]
@@ -650,6 +785,7 @@ mod test {
         );
 
         noodle!(serialize, deserialize,
+            #[derive(Debug)]
             enum TestD {
                 #[cfg(test)]
                 Apples {},
@@ -666,8 +802,12 @@ mod test {
         );
 
         let mut buf = Vec::new();
-        TestD::Cars.serialize(&mut buf);
+        TestD::Bananas { x: 5, z: -50 }.serialize(&mut buf);
         print!("{:x?}\n", buf);
+
+        let mut ptr = &buf[..];
+        print!("Deser {:?}\n", TestD::deserialize(&mut ptr));
+        assert!(ptr.len() == 0);
 
         noodle!(serialize, deserialize,
             enum TestE {
