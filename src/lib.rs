@@ -429,7 +429,7 @@ macro_rules! noodle {
             ),*$(,)?
         }
     ) => {
-        noodle!(defenum,
+        noodle!(define_enum,
             $(#[$attr])* $vis enum $enumname {
                 // Go through each variant in the enum
                 $(
@@ -515,7 +515,7 @@ macro_rules! noodle {
             });
     };
 
-    (defenum,
+    (define_enum,
         $(#[$attr:meta])* $vis:vis enum $enumname:ident {
             // Go through each variant in the enum
             $(
@@ -609,7 +609,8 @@ macro_rules! noodle {
 
                 // Go through each variant
                 $(
-                    handlie!(self, $enumname, $variant_ident, buf, &_count,
+                    handle_serialize_enum_variants!(
+                        self, $enumname, $variant_ident, buf, &_count,
                         $({$($named_field),*})? $(($($tuple_typ),*))?);
 
                     _count += 1;
@@ -660,7 +661,8 @@ macro_rules! noodle {
 
                 // Go through each variant
                 $(
-                    handlie_deser!(variant, $enumname, $variant_ident,
+                    handle_deserialize_enum_variants!(
+                        variant, $enumname, $variant_ident,
                         orig_ptr, ptr, _count,
                         $({$($named_field),*})? $(($($tuple_typ),*))?);
 
@@ -674,7 +676,7 @@ macro_rules! noodle {
     };
 }
 
-macro_rules! handlie {
+macro_rules! handle_serialize_enum_variants {
     // Named enum variants
     ($self:ident, $enumname:ident, $variant_ident:ident,
             $buf:expr, $count:expr, {$($named_field:ident),*}) => {
@@ -706,7 +708,7 @@ macro_rules! handlie {
     };
 }
 
-macro_rules! handlie_deser {
+macro_rules! handle_deserialize_enum_variants {
     // Named enum variants
     ($variant:ident, $enumname:ident, $variant_ident:ident, $orig_ptr:expr,
             $buf:expr, $count:expr, {$($named_field:ident),*}) => {
@@ -764,28 +766,67 @@ mod test {
 
     use crate::*;
 
+    // Serialize a payload and then validate that when it is deserialized it
+    // matches the serialized payload identically
+    macro_rules! test_serdes {
+        ($payload_ty:ty, $payload:expr) => {
+            // Allocate serialization buffer
+            let mut buf = Vec::new();
+
+            // Serialize `payload`
+            $payload.serialize(&mut buf);
+
+            // Allocate a pointer to the serialized buffer
+            let mut ptr = &buf[..];
+
+            // Deserialize the payload
+            let deser_payload = <$payload_ty>::deserialize(&mut ptr)
+                .expect("Failed to deserialize payload");
+
+            // Make sure all bytes were consumed from the serialized buffer
+            assert!(ptr.len() == 0,
+                "Deserialization did not consume all serialized bytes");
+
+            // Make sure the original payload and the deserialized payload
+            // match
+            assert!($payload == deser_payload,
+                "Serialization and deserialization did not match original");
+        }
+    }
+
     #[test]
     fn test() {
+        // Not constructable, but we should handle this empty enum case
         noodle!(serialize, deserialize,
             enum TestA {}
         );
 
+        // Basic enum
         noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
             enum TestB {
                 Apples,
                 Bananas,
             }
         );
+        test_serdes!(TestB, TestB::Apples);
+        test_serdes!(TestB, TestB::Bananas);
 
+        // Enum with a discriminant
         noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
             enum TestC {
                 Apples = 6,
                 Bananas
             }
         );
+        test_serdes!(TestC, TestC::Apples);
+        test_serdes!(TestC, TestC::Bananas);
 
+        // Enum with all types of variants, and some extra attributes at each
+        // level to test attribute handling
         noodle!(serialize, deserialize,
-            #[derive(Debug)]
+            #[derive(PartialEq)]
             enum TestD {
                 #[cfg(test)]
                 Apples {},
@@ -800,23 +841,12 @@ mod test {
                 Testing(i128, i64),
             }
         );
-
-        let mut buf = Vec::new();
-        TestD::Bananas { x: 5, z: -50 }.serialize(&mut buf);
-        print!("{:x?}\n", buf);
-
-        let mut ptr = &buf[..];
-        print!("Deser {:?}\n", TestD::deserialize(&mut ptr));
-        assert!(ptr.len() == 0);
-
-        noodle!(serialize, deserialize,
-            enum TestE {
-                Apples = 5,
-                Bananas,
-            }
-        );
-
-        panic!("NOPE");
+        test_serdes!(TestD, TestD::Apples {});
+        test_serdes!(TestD, TestD::Cars);
+        test_serdes!(TestD, TestD::Bananas { x: 932923, z: -348192 });
+        test_serdes!(TestD, TestD::Cake());
+        test_serdes!(TestD, TestD::Cakes(0x13371337));
+        test_serdes!(TestD, TestD::Testing(0xc0c0c0c0c0c0c0c0c0c0c0, -10000));
     }
 }
 
