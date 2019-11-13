@@ -4,6 +4,7 @@ extern crate core;
 extern crate alloc;
 
 #[macro_use] mod tuple_match;
+#[macro_use] mod tuple_gen;
 
 use core::convert::TryInto;
 use alloc::borrow::Cow;
@@ -303,69 +304,220 @@ serialize_arr!(32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
 #[macro_export]
 macro_rules! noodle {
-    // Create a new structure with serialize implemented
-    (serialize, $(#[$attr:meta])* $vis:vis struct $structname:ident { $($(#[$fattr:meta])* $fvis:vis $id:ident: $typ:ty),*$(,)?}) => {
-        noodle!(defstruct, $($attr)*, $vis, $structname, $($($fattr)*, $fvis, $id, $typ)*);
-        noodle!(impl_serialize, $structname, $($id)*);
+    // Create a new struct with serialize and deserialize implemented
+    (serialize, deserialize,
+        $(#[$attr:meta])* $vis:vis struct $structname:ident
+            // Named struct
+            $({
+                $(
+                    $(#[$named_attr:meta])*
+                        $named_field:ident: $named_type:ty
+                ),*$(,)?
+            })?
+
+            // Named tuple
+            $((
+                $(
+                    $(#[$tuple_meta:meta])* $tuple_typ:ty
+                ),*$(,)? 
+            );)?
+
+            // Eat semicolons
+            $(;)?
+    ) => {
+        noodle!(define_struct,
+            $(#[$attr])* $vis struct $structname
+            // Named struct
+            $({
+                $(
+                    $(#[$named_attr])*
+                        $named_field: $named_type
+                ),*
+            })?
+
+            // Named tuple
+            $((
+                $(
+                    $(#[$tuple_meta])* $tuple_typ
+                ),*
+            );)?
+        );
+        noodle!(impl_serialize_struct,
+            $(#[$attr])* $vis struct $structname
+            // Named struct
+            $({
+                $(
+                    $(#[$named_attr])*
+                        $named_field: $named_type
+                ),*
+            })?
+
+            // Named tuple
+            $((
+                $(
+                    $(#[$tuple_meta])* $tuple_typ
+                ),*
+            );)?
+        );
+        noodle!(impl_deserialize_struct,
+            $(#[$attr])* $vis struct $structname
+            // Named struct
+            $({
+                $(
+                    $(#[$named_attr])*
+                        $named_field: $named_type
+                ),*
+            })?
+
+            // Named tuple
+            $((
+                $(
+                    $(#[$tuple_meta])* $tuple_typ
+                ),*
+            );)?
+        );
     };
 
-    // Create a new structure with deserialize implemented
-    (deserialize, $(#[$attr:meta])* $vis:vis struct $structname:ident { $($(#[$fattr:meta])* $fvis:vis $id:ident: $typ:ty),*$(,)?} ) => {
-        noodle!(defstruct, $($attr)*, $vis, $structname, $($($fattr)*, $fvis, $id, $typ)*);
-        noodle!(impl_deserialize, $structname, $($id)*);
+    // Define an empty structure
+    (define_struct,
+        $(#[$attr:meta])* $vis:vis struct $structname:ident
+    ) => {
+        $(#[$attr])* $vis struct $structname;
     };
 
-    // Create a new structure with serialize and deserialize implemented
-    (serialize, deserialize, $(#[$attr:meta])* $vis:vis struct $structname:ident { $($(#[$fattr:meta])* $fvis:vis $id:ident: $typ:ty),*$(,)?} ) => {
-        noodle!(defstruct, $($attr)*, $vis, $structname, $($($fattr)*, $fvis, $id, $typ)*);
-        noodle!(impl_serialize, $structname, $($id)*);
-        noodle!(impl_deserialize, $structname, $($id)*);
-    };
+    // Define a structure
+    (define_struct,
+        $(#[$attr:meta])* $vis:vis struct $structname:ident
+            // Named struct
+            $({
+                $(
+                    $(#[$named_attr:meta])*
+                        $named_field:ident: $named_type:ty
+                ),*$(,)?
+            })?
 
-    // Create a new structure with serialize and deserialize implemented
-    (deserialize, serialize, $(#[$attr:meta])* $vis:vis struct $structname:ident { $($(#[$fattr:meta])* $fvis:vis $id:ident: $typ:ty),*$(,)?} ) => {
-        noodle!(defstruct, $($attr)*, $vis, $structname, $($($fattr)*, $fvis, $id, $typ)*);
-        noodle!(impl_serialize, $structname, $($id)*);
-        noodle!(impl_deserialize, $structname, $($id)*);
-    };
-
-    (defstruct, $($meta:meta)*, $vis:vis, $structname:ident, $($($fattr:meta)*, $fvis:vis, $id:ident, $typ:ty)*) => {
-        $(
-            #[$meta]
-        )*
-        $vis struct $structname {
+            // Named tuple
+            $((
+                $(
+                    $(#[$tuple_meta:meta])* $tuple_typ:ty
+                ),*$(,)? 
+            );)?
+    ) => {
+        $(#[$attr])* $vis struct $structname
+        // Named struct
+        $({
             $(
-                $(#[$fattr])* $fvis $id: $typ,
-            )*
-        }
+                $(#[$named_attr])*
+                    $named_field: $named_type
+            ),*
+        })?
+
+        // Named tuple
+        $((
+            $(
+                $(#[$tuple_meta])* $tuple_typ
+            ),*
+        );)?
     };
 
-    (impl_serialize, $structname:ident, $($id:ident)*) => {
+    // Implement serialization for a structure
+    (impl_serialize_struct,
+        $(#[$attr:meta])* $vis:vis struct $structname:ident
+            // Named struct
+            $({
+                $(
+                    $(#[$named_attr:meta])*
+                        $named_field:ident: $named_type:ty
+                ),*$(,)?
+            })?
+
+            // Named tuple
+            $((
+                $(
+                    $(#[$tuple_meta:meta])* $tuple_typ:ty
+                ),*$(,)? 
+            );)?
+    ) => {
         impl Serialize for $structname {
             fn serialize(&self, buf: &mut Vec<u8>) {
+                // Named struct
                 $(
-                    Serialize::serialize(&self.$id, buf);
-                )*
+                    $(
+                        Serialize::serialize(&self.$named_field, buf);
+                    )*
+                )?
+
+                // Named tuple
+                handle_serialize_named_tuple!(self, buf $($(, $tuple_typ)*)?);
             }
         }
     };
 
-    (impl_deserialize, $structname:ident, $($id:ident)*) => {
+    // Implement deserialization for a field-less structs
+    (impl_deserialize_struct,
+        $(#[$attr:meta])* $vis:vis struct $structname:ident
+    ) => {
+        impl Deserialize for $structname {
+            fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
+                Some($structname)
+            }
+        }
+    };
+
+    // Implement deserialization for a structure
+    (impl_deserialize_struct,
+        $(#[$attr:meta])* $vis:vis struct $structname:ident
+            // Named struct
+            $({
+                $(
+                    $(#[$named_attr:meta])*
+                        $named_field:ident: $named_type:ty
+                ),*$(,)?
+            })?
+
+            // Named tuple
+            $((
+                $(
+                    $(#[$tuple_meta:meta])* $tuple_typ:ty
+                ),*$(,)? 
+            );)?
+    ) => {
         impl Deserialize for $structname {
             fn deserialize(orig_ptr: &mut &[u8]) -> Option<Self> {
                 // Get the original pointer
                 let mut ptr = *orig_ptr;
 
-                // Construct this structure field-by-field
-                let ret = $structname {
-                    $($id: Deserialize::deserialize(&mut ptr)?),*
-                };
+                // Named struct
+                $(
+                    let ret = $structname {
+                        $(
+                            $named_field: Deserialize::deserialize(&mut ptr)?,
+                        )*
+                    };
 
-                // Update the original pointer
-                *orig_ptr = ptr;
+                    // Update the original pointer
+                    *orig_ptr = ptr;
 
-                // Return out the result
-                Some(ret)
+                    return Some(ret);
+                )?
+
+                // Named tuple
+                $(
+                    let ret = $structname(
+                        $(
+                            <$tuple_typ as Deserialize>::
+                                deserialize(&mut ptr)?,
+                        )*
+                    );
+
+                    // Update the original pointer
+                    *orig_ptr = ptr;
+
+                    return Some(ret);
+                )?
+
+                // Not reachable
+                None
             }
         }
     };
@@ -875,6 +1027,34 @@ mod test {
             struct TestD;
         );
         test_serdes!(TestD, TestD);
+        
+        // Empty named tuple
+        noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
+            struct TestE();
+        );
+        test_serdes!(TestE, TestE());
+
+        // Named tuple
+        noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
+            struct TestF(u32, i128);
+        );
+        test_serdes!(TestF, TestF(!0, -42934822412));
+
+        // Named tuple with trailing comma
+        noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
+            struct TestG(u32, i128,);
+        );
+        test_serdes!(TestG, TestG(4, 6));
+
+        // Named tuple with array
+        noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
+            struct TestH(u32, [i8; 4]);
+        );
+        test_serdes!(TestH, TestH(99, [3; 4]));
     }
 }
 
