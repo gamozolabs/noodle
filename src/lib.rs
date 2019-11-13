@@ -7,7 +7,9 @@ extern crate alloc;
 #[macro_use] mod tuple_gen;
 
 use core::convert::TryInto;
-use alloc::borrow::Cow;
+use alloc::borrow::{Cow, ToOwned};
+use alloc::vec::Vec;
+use alloc::string::String;
 
 /// Serialize a `self` into an existing vector
 pub trait Serialize {
@@ -179,6 +181,7 @@ impl Deserialize for String {
     }
 }
 
+/// Implement `Serialize` for types which can be `Cow`ed
 impl<'a, T: 'a> Serialize for Cow<'a, T>
         where T: Serialize + ToOwned + ?Sized {
     fn serialize(&self, buf: &mut Vec<u8>) {
@@ -186,6 +189,7 @@ impl<'a, T: 'a> Serialize for Cow<'a, T>
     }
 }
 
+/// Implement `Deserialize` for types which can be `Cow`ed
 impl<'a, T: 'a> Deserialize for Cow<'a, T>
         where T: ToOwned + ?Sized,
               <T as ToOwned>::Owned: Deserialize,
@@ -303,6 +307,23 @@ serialize_arr!(31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 serialize_arr!(32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
 #[macro_export]
+/// Implement serialize and deserialize on an enum or structure definition.
+/// 
+/// This is used by just wrapping a structure definition like:
+///
+/// `noodle!(serialize, deserialize, struct Foo { bar: u32 })`
+///
+/// This can be used on any structure or enum definition and automatically
+/// implements the serialize and deserialize traits for it by enumerating every
+/// field in the structure (or enum variant) and serializing it out in
+/// definition order.
+///
+/// This all looks really complicated, but it's really just a lot of copied
+/// and pasted code that can represent a structure or enum shape in macros.
+/// These macros destruct all possible structs and enums and gives us "access"
+/// to the inner field names, ordering, and types. This allows us to invoke
+/// the `serialize` or `deserialize` routines for every member of the
+/// structure. It's that simple!
 macro_rules! noodle {
     // Create a new struct with serialize and deserialize implemented
     (serialize, deserialize,
@@ -517,7 +538,7 @@ macro_rules! noodle {
                 )?
 
                 // Not reachable
-                None
+                unreachable!("How'd you get here?");
             }
         }
     };
@@ -793,7 +814,7 @@ macro_rules! noodle {
                     _count += 1;
                 )*
 
-                // Return out the result
+                // Failed to find a matching variant, return `None`
                 None
             }
         }
@@ -891,7 +912,7 @@ macro_rules! handle_deserialize_enum_variants {
 #[cfg(test)]
 mod test {
     #![allow(unused)]
-
+    
     use crate::*;
 
     // Serialize a payload and then validate that when it is deserialized it
@@ -1049,12 +1070,12 @@ mod test {
         );
         test_serdes!(TestG, TestG(4, 6));
 
-        // Named tuple with array
+        // Named tuple with array and nested structure
         noodle!(serialize, deserialize,
             #[derive(PartialEq)]
-            struct TestH(u32, [i8; 4]);
+            struct TestH(u32, [i8; 4], TestG);
         );
-        test_serdes!(TestH, TestH(99, [3; 4]));
+        test_serdes!(TestH, TestH(99, [3; 4], TestG(5, -23)));
     }
 }
 
