@@ -802,6 +802,9 @@ mod test {
         // Enum with all types of variants, and some extra attributes at each
         // level to test attribute handling
         noodle!(serialize, deserialize,
+            /// Big doc comment here
+            /// with many lines
+            /// you know?
             #[derive(PartialEq)]
             enum TestD {
                 #[cfg(test)]
@@ -812,6 +815,7 @@ mod test {
                      */
                     #[cfg(test)]
                     x: u32,
+                    /// doc comment
                     z: i32
                 },
                 // Another comment
@@ -820,6 +824,7 @@ mod test {
                 Cakes(u32),
                 Foopie(i8, i32,),
                 Testing(i128, i64),
+                Arrayz([u8; 4]),
                 Lotsotuple(i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8,i8),
             }
         );
@@ -831,7 +836,45 @@ mod test {
         test_serdes!(TestD, TestD::Cakes(0x13371337));
         test_serdes!(TestD, TestD::Foopie(-9, 19));
         test_serdes!(TestD, TestD::Testing(0xc0c0c0c0c0c0c0c0c0c0c0, -10000));
+        test_serdes!(TestD, TestD::Arrayz([9; 4]));
         test_serdes!(TestD, TestD::Lotsotuple(0,0,0,0,0,5,0,0,0,0,0,0,0,9,0,0));
+    }
+
+    #[test]
+    fn test_struct() {
+        // Empty struct
+        noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
+            struct TestA {}
+        );
+        test_serdes!(TestA, TestA {});
+
+        // Standard struct
+        noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
+            struct TestB {
+                foo: u32,
+                bar: i32,
+            }
+        );
+        test_serdes!(TestB, TestB { foo: 4343, bar: -234 });
+
+        // Standard struct with some arrays
+        noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
+            struct TestC {
+                foo: u32,
+                bar: [u32; 8],
+            }
+        );
+        test_serdes!(TestC, TestC { foo: 4343, bar: [10; 8] });
+
+        // Bare struct
+        noodle!(serialize, deserialize,
+            #[derive(PartialEq)]
+            struct TestD;
+        );
+        test_serdes!(TestD, TestD);
     }
 }
 
