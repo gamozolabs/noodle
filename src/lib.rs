@@ -3,8 +3,8 @@
 extern crate core;
 extern crate alloc;
 
-#[macro_use] mod tuple_match;
-#[macro_use] mod tuple_gen;
+#[macro_use] pub mod tuple_match;
+#[macro_use] pub mod tuple_gen;
 
 use core::convert::TryInto;
 use alloc::borrow::{Cow, ToOwned};
@@ -306,7 +306,6 @@ serialize_arr!(30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 serialize_arr!(31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 serialize_arr!(32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
-#[macro_export]
 /// Implement serialize and deserialize on an enum or structure definition.
 /// 
 /// This is used by just wrapping a structure definition like:
@@ -324,6 +323,7 @@ serialize_arr!(32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 /// to the inner field names, ordering, and types. This allows us to invoke
 /// the `serialize` or `deserialize` routines for every member of the
 /// structure. It's that simple!
+#[macro_export]
 macro_rules! noodle {
     // Create a new struct with serialize and deserialize implemented
     (serialize, deserialize,
@@ -332,14 +332,14 @@ macro_rules! noodle {
             $({
                 $(
                     $(#[$named_attr:meta])*
-                        $named_field:ident: $named_type:ty
+                        $named_vis:vis $named_field:ident: $named_type:ty
                 ),*$(,)?
             })?
 
             // Named tuple
             $((
                 $(
-                    $(#[$tuple_meta:meta])* $tuple_typ:ty
+                    $(#[$tuple_meta:meta])* $tuple_vis:vis $tuple_typ:ty
                 ),*$(,)? 
             );)?
 
@@ -352,14 +352,14 @@ macro_rules! noodle {
             $({
                 $(
                     $(#[$named_attr])*
-                        $named_field: $named_type
+                        $named_vis $named_field: $named_type
                 ),*
             })?
 
             // Named tuple
             $((
                 $(
-                    $(#[$tuple_meta])* $tuple_typ
+                    $(#[$tuple_meta])* $tuple_vis $tuple_typ
                 ),*
             );)?
         );
@@ -369,14 +369,14 @@ macro_rules! noodle {
             $({
                 $(
                     $(#[$named_attr])*
-                        $named_field: $named_type
+                        $named_vis $named_field: $named_type
                 ),*
             })?
 
             // Named tuple
             $((
                 $(
-                    $(#[$tuple_meta])* $tuple_typ
+                    $(#[$tuple_meta])* $tuple_vis $tuple_typ
                 ),*
             );)?
         );
@@ -386,14 +386,14 @@ macro_rules! noodle {
             $({
                 $(
                     $(#[$named_attr])*
-                        $named_field: $named_type
+                        $named_vis $named_field: $named_type
                 ),*
             })?
 
             // Named tuple
             $((
                 $(
-                    $(#[$tuple_meta])* $tuple_typ
+                    $(#[$tuple_meta])* $tuple_vis $tuple_typ
                 ),*
             );)?
         );
@@ -413,14 +413,14 @@ macro_rules! noodle {
             $({
                 $(
                     $(#[$named_attr:meta])*
-                        $named_field:ident: $named_type:ty
+                        $named_vis:vis $named_field:ident: $named_type:ty
                 ),*$(,)?
             })?
 
             // Named tuple
             $((
                 $(
-                    $(#[$tuple_meta:meta])* $tuple_typ:ty
+                    $(#[$tuple_meta:meta])* $tuple_vis:vis $tuple_typ:ty
                 ),*$(,)? 
             );)?
     ) => {
@@ -429,14 +429,14 @@ macro_rules! noodle {
         $({
             $(
                 $(#[$named_attr])*
-                    $named_field: $named_type
+                    $named_vis $named_field: $named_type
             ),*
         })?
 
         // Named tuple
         $((
             $(
-                $(#[$tuple_meta])* $tuple_typ
+                $(#[$tuple_meta])* $tuple_vis $tuple_typ
             ),*
         );)?
     };
@@ -448,14 +448,14 @@ macro_rules! noodle {
             $({
                 $(
                     $(#[$named_attr:meta])*
-                        $named_field:ident: $named_type:ty
+                        $named_vis:vis $named_field:ident: $named_type:ty
                 ),*$(,)?
             })?
 
             // Named tuple
             $((
                 $(
-                    $(#[$tuple_meta:meta])* $tuple_typ:ty
+                    $(#[$tuple_meta:meta])* $tuple_vis:vis $tuple_typ:ty
                 ),*$(,)? 
             );)?
     ) => {
@@ -469,7 +469,8 @@ macro_rules! noodle {
                 )?
 
                 // Named tuple
-                handle_serialize_named_tuple!(self, buf $($(, $tuple_typ)*)?);
+                handle_serialize_named_tuple!(
+                    self, buf $($(, $tuple_typ)*)?);
             }
         }
     };
@@ -492,14 +493,14 @@ macro_rules! noodle {
             $({
                 $(
                     $(#[$named_attr:meta])*
-                        $named_field:ident: $named_type:ty
+                        $named_vis:vis $named_field:ident: $named_type:ty
                 ),*$(,)?
             })?
 
             // Named tuple
             $((
                 $(
-                    $(#[$tuple_meta:meta])* $tuple_typ:ty
+                    $(#[$tuple_meta:meta])* $tuple_vis:vis $tuple_typ:ty
                 ),*$(,)? 
             );)?
     ) => {
@@ -509,7 +510,8 @@ macro_rules! noodle {
                 let mut ptr = *orig_ptr;
 
                 // Named struct
-                $(
+                $(if true {
+                    
                     let ret = $structname {
                         $(
                             $named_field: Deserialize::deserialize(&mut ptr)?,
@@ -520,10 +522,10 @@ macro_rules! noodle {
                     *orig_ptr = ptr;
 
                     return Some(ret);
-                )?
+                })?
 
                 // Named tuple
-                $(
+                $(if true {
                     let ret = $structname(
                         $(
                             <$tuple_typ as Deserialize>::
@@ -535,7 +537,7 @@ macro_rules! noodle {
                     *orig_ptr = ptr;
 
                     return Some(ret);
-                )?
+                })?
 
                 // Not reachable
                 unreachable!("How'd you get here?");
@@ -823,6 +825,7 @@ macro_rules! noodle {
 
 /// Handles serializing of the 3 different enum variant types. Enum struct
 /// variants, enum tuple variants, and enum discriminant/bare variants
+#[macro_export]
 macro_rules! handle_serialize_enum_variants {
     // Named enum variants
     ($self:ident, $enumname:ident, $variant_ident:ident,
@@ -857,6 +860,7 @@ macro_rules! handle_serialize_enum_variants {
 
 /// Handles deserializing of the 3 different enum variant types. Enum struct
 /// variants, enum tuple variants, and enum discriminant/bare variants
+#[macro_export]
 macro_rules! handle_deserialize_enum_variants {
     // Named enum variants
     ($variant:ident, $enumname:ident, $variant_ident:ident, $orig_ptr:expr,
@@ -1037,7 +1041,7 @@ mod test {
             #[derive(PartialEq)]
             struct TestC {
                 foo: u32,
-                bar: [u32; 8],
+                pub bar: [u32; 8],
             }
         );
         test_serdes!(TestC, TestC { foo: 4343, bar: [10; 8] });
